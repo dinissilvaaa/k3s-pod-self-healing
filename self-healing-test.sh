@@ -1,91 +1,35 @@
 #!/bin/bash
-# K3s self-healing test:
-#   1. Deploy Nginx with 3 replicas
-#   2. Check the pods
-#   3. Delete some pods to simulate a failure
-#   4. Watch Kubernetes recreate them and measure the recovery time
-# Everything is shown on screen and saved to a results file.
-#
-# Usage: ./self-healing-test.sh [pods_to_delete]    (default: 2)
+N=${1:-2}                                        # number of pods to delete (default 2)
+if [[ ! "$N" =~ ^[1-3]$ ]]; then                 # only 1, 2 or 3 make sense, because there are 3 pods
+  echo "Error: the number of pods to delete must be 1, 2 or 3 (the Deployment only has 3 pods)."  # explain the problem
+  exit 1                                         # stop without touching the cluster
+fi                                               # end of the check
+exec > >(tee "results-delete-$N.txt") 2>&1       # from here on, show everything on screen and save it to the results file
 
-set -o pipefail                 # a failing command is not hidden by "| tee"
-cd "$(dirname "$0")"            # run from the script folder so the YAML is found
-export KUBECONFIG=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}   # default K3s config
+ready_pods() { kubectl get pods -l app=nginx | grep '1/1 *Running'; }  # list only ready pods (Terminating and ContainerCreating are left out)
 
-TO_DELETE=${1:-2}               # how many pods to delete
-REPLICAS=3                      # must match "replicas" in nginx-deployment.yaml
-TIMEOUT=120                     # give up if recovery takes longer than this (seconds)
-OUT="results-delete-$TO_DELETE.txt"
+echo "=== STEP 1: Deploy ==="                      # title of step 1
+kubectl apply -f nginx-deployment.yaml           # send the desired state (3 replicas) to the cluster
+kubectl rollout status deployment/nginx-demo || exit 1  # wait until the 3 pods are ready, stop if it fails
 
-# Print text on screen and save it to the results file
-log() { echo "$@" | tee -a "$OUT"; }
+echo -e "\n=== STEP 2: Check pods ==="            # title of step 2 (\n adds a blank line before it)
+kubectl get pods -l app=nginx                    # show the pods: 3 should be 1/1 Running
 
-# Run a command, show its output and save it to the results file
-run() { "$@" 2>&1 | tee -a "$OUT"; }
+echo -e "\n=== STEP 3: Delete $N pod(s) ==="     # title of step 3
+PODS=$(ready_pods | head -n "$N" | awk '{print $1}')  # names of the first N ready pods
+START=$(date +%s.%N)                             # start the timer (seconds with decimals)
+kubectl delete pod $PODS --wait=false            # simulate the failure; don't wait, so only the recovery is timed
 
-# Count pods that are ready (1/1 Running). Pods being deleted show
-# "Terminating" and new ones "ContainerCreating", so they are not counted.
-ready_pods() { kubectl get pods -l app=nginx --no-headers | grep -cE '1/1 +Running'; }
+echo -e "\n=== STEP 4: Kubernetes reaction ==="  # title of step 4
+kubectl get pods -l app=nginx                    # right after the failure: old pods Terminating, new ones ContainerCreating
+while [ "$(ready_pods | wc -l)" -lt 3 ]; do      # repeat while fewer than 3 pods are ready
+  sleep 0.5                                      # check again every 0.5 seconds
+done                                             # end of the loop: 3 pods are ready again
+TIME=$(awk "BEGIN {printf \"%.1f\", $(date +%s.%N) - $START}")  # stop the timer: now minus start, 1 decimal (bash can't do decimals)
 
-# Stop early if the cluster can't be reached
-if ! kubectl get nodes >/dev/null 2>&1; then
-  echo "Error: cannot reach the K3s cluster. Is K3s installed and running?"
-  exit 1
-fi
+echo -e "\n=== FINAL RESULT ==="                 # title of the result
+kubectl get pods -l app=nginx                    # 3 pods Running again, the new ones with new names and a low AGE
+echo "Recovery time: $TIME seconds"              # print the measured recovery time
 
-: > "$OUT"                      # start with an empty results file
-log "K3s self-healing test - $(date '+%Y-%m-%d %H:%M:%S')"
-run kubectl get nodes
-
-log ""
-log "=== STEP 1: Deploy (replicas: $REPLICAS) ==="
-run kubectl apply -f nginx-deployment.yaml || { log "Error: deploy failed."; exit 1; }
-run kubectl rollout status deployment/nginx-demo --timeout="${TIMEOUT}s" || { log "Error: deployment not ready."; exit 1; }
-
-# Wait until only the 3 ready pods exist (no leftovers from an earlier run)
-SECONDS=0
-while [ "$(kubectl get pods -l app=nginx --no-headers | wc -l)" -ne "$REPLICAS" ] || [ "$(ready_pods)" -ne "$REPLICAS" ]; do
-  if [ "$SECONDS" -ge "$TIMEOUT" ]; then
-    log "Error: old pods are still around after $TIMEOUT seconds."
-    exit 1
-  fi
-  sleep 1
-done
-
-log ""
-log "=== STEP 2: Check pods ==="
-run kubectl get pods -l app=nginx -o wide
-
-log ""
-log "=== STEP 3: Delete $TO_DELETE pod(s) ==="
-# Pick the first N ready pods
-PODS=$(kubectl get pods -l app=nginx --no-headers | awk -v n="$TO_DELETE" '/1\/1 +Running/ && c < n { print "pod/" $1; c++ }')
-START=$(date +%s.%N)            # start the timer
-run kubectl delete $PODS --wait=false   # don't wait, so we only time the recovery
-
-log ""
-log "=== STEP 4: Kubernetes reaction ==="
-run kubectl get pods -l app=nginx   # right after the failure: old pods Terminating, new ones being created
-
-# Wait until all replicas are ready again (check every 0.5 s)
-SECONDS=0
-while [ "$(ready_pods)" -lt "$REPLICAS" ]; do
-  if [ "$SECONDS" -ge "$TIMEOUT" ]; then
-    log "Error: pods did not recover within $TIMEOUT seconds."
-    exit 1
-  fi
-  sleep 0.5
-done
-END=$(date +%s.%N)              # stop the timer
-TIME=$(awk "BEGIN { printf \"%.1f\", $END - $START }")   # bash can't do decimals, awk can
-
-log ""
-log "=== FINAL RESULT ==="
-run kubectl get pods -l app=nginx
-log "Deleted pods: $(echo $PODS)"
-log "Time until $REPLICAS pods were ready again: $TIME seconds"
-
-log ""
-log "=== EVENTS: who created the new pods ==="
-# The ReplicaSet events show it created the replacement pods by itself
-run bash -c "kubectl get events --field-selector reason=SuccessfulCreate --sort-by=.lastTimestamp | tail -n $TO_DELETE"
+echo -e "\n=== WHO CONTROLS THE PODS ==="        # title of the last section
+kubectl get pods -l app=nginx -o custom-columns=POD:.metadata.name,CONTROLLED_BY:.metadata.ownerReferences[0].kind  # owner of each pod: the ReplicaSet, which recreated the deleted ones

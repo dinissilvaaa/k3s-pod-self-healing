@@ -1,39 +1,22 @@
-# Desired state: 3 Nginx pods running at all times.
-# If a pod disappears, Kubernetes creates a new one to get back to 3.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-demo
-spec:
-  replicas: 3                  # number of pods that must always exist
-  selector:
-    matchLabels:
-      app: nginx               # the Deployment manages pods with this label
-  template:                    # template used to create every pod (also the replacements)
-    metadata:
-      labels:
-        app: nginx             # must match the selector above
-    spec:
-      containers:
-        - name: nginx
-          image: nginx:alpine  # small Nginx image, quick to download and start
-          ports:
-            - containerPort: 80
-          readinessProbe:      # the pod only counts as ready when Nginx answers
-            httpGet:
-              path: /
-              port: 80
-            periodSeconds: 2
-          livenessProbe:       # if Nginx stops answering, the container is restarted
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          resources:           # small limits so one pod can't use the whole node
-            requests:
-              cpu: 50m
-              memory: 32Mi
-            limits:
-              cpu: 200m
-              memory: 64Mi
+apiVersion: apps/v1                # API group and version used for Deployments
+kind: Deployment                   # object type: keeps a set of identical pods running through a ReplicaSet
+metadata:                          # identification of the object
+  name: nginx-demo                 # Deployment name, used by the script (deployment/nginx-demo)
+spec:                              # desired state
+  replicas: 3                      # 3 pods must always exist; the ReplicaSet recreates any pod that disappears
+  selector:                        # how the Deployment finds its pods
+    matchLabels:                   # pods with these labels belong to this Deployment
+      app: nginx                   # label app=nginx, must be the same as in the template below
+  template:                        # model used to create every pod, including the replacements
+    metadata:                      # metadata of each pod
+      labels:                      # labels given to each pod
+        app: nginx                 # same label as the selector, also used by "kubectl get pods -l app=nginx"
+    spec:                          # pod specification
+      containers:                  # list of containers inside each pod
+        - name: nginx              # one container, called nginx
+          image: nginx:alpine      # small Nginx image, fast to download and start
+          readinessProbe:          # the pod only counts as ready (1/1) when this check passes
+            httpGet:               # the check is an HTTP request
+              path: /              # to the main page
+              port: 80             # on port 80, where Nginx listens
+            periodSeconds: 2       # repeat the check every 2 seconds
