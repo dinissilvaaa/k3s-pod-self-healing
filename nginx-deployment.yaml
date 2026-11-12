@@ -1,0 +1,39 @@
+# Desired state: 3 Nginx pods running at all times.
+# If a pod disappears, Kubernetes creates a new one to get back to 3.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-demo
+spec:
+  replicas: 3                  # number of pods that must always exist
+  selector:
+    matchLabels:
+      app: nginx               # the Deployment manages pods with this label
+  template:                    # template used to create every pod (also the replacements)
+    metadata:
+      labels:
+        app: nginx             # must match the selector above
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine  # small Nginx image, quick to download and start
+          ports:
+            - containerPort: 80
+          readinessProbe:      # the pod only counts as ready when Nginx answers
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 2
+          livenessProbe:       # if Nginx stops answering, the container is restarted
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:           # small limits so one pod can't use the whole node
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi

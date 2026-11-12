@@ -1,0 +1,34 @@
+K3s self-healing test - 2026-11-12 11:39:26
+NAME         STATUS   ROLES           AGE   VERSION
+acernitro5   Ready    control-plane   8d    v1.36.5+k3s1
+
+=== STEP 1: Deploy (replicas: 3) ===
+deployment.apps/nginx-demo unchanged
+deployment "nginx-demo" successfully rolled out
+
+=== STEP 2: Check pods ===
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE         NOMINATED NODE   READINESS GATES
+nginx-demo-5748cf6bbf-dm9v5   1/1     Running   0          6s    10.42.0.56   acernitro5   <none>           <none>
+nginx-demo-5748cf6bbf-g6z67   1/1     Running   0          5s    10.42.0.57   acernitro5   <none>           <none>
+nginx-demo-5748cf6bbf-rgdp7   1/1     Running   0          4s    10.42.0.58   acernitro5   <none>           <none>
+
+=== STEP 3: Delete 1 pod(s) ===
+pod "nginx-demo-5748cf6bbf-dm9v5" deleted from default namespace
+
+=== STEP 4: Kubernetes reaction ===
+NAME                          READY   STATUS              RESTARTS   AGE
+nginx-demo-5748cf6bbf-dm9v5   1/1     Terminating         0          7s
+nginx-demo-5748cf6bbf-g6z67   1/1     Running             0          6s
+nginx-demo-5748cf6bbf-mwm5v   0/1     ContainerCreating   0          1s
+nginx-demo-5748cf6bbf-rgdp7   1/1     Running             0          5s
+
+=== FINAL RESULT ===
+NAME                          READY   STATUS    RESTARTS   AGE
+nginx-demo-5748cf6bbf-g6z67   1/1     Running   0          8s
+nginx-demo-5748cf6bbf-mwm5v   1/1     Running   0          3s
+nginx-demo-5748cf6bbf-rgdp7   1/1     Running   0          7s
+Deleted pods: pod/nginx-demo-5748cf6bbf-dm9v5
+Time until 3 pods were ready again: 2.7 seconds
+
+=== EVENTS: who created the new pods ===
+3s          Normal   SuccessfulCreate   replicaset/nginx-demo-5748cf6bbf   Created pod: nginx-demo-5748cf6bbf-mwm5v

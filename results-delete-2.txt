@@ -1,0 +1,37 @@
+K3s self-healing test - 2026-11-12 11:39:32
+NAME         STATUS   ROLES           AGE   VERSION
+acernitro5   Ready    control-plane   8d    v1.36.5+k3s1
+
+=== STEP 1: Deploy (replicas: 3) ===
+deployment.apps/nginx-demo unchanged
+deployment "nginx-demo" successfully rolled out
+
+=== STEP 2: Check pods ===
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE         NOMINATED NODE   READINESS GATES
+nginx-demo-5748cf6bbf-g6z67   1/1     Running   0          11s   10.42.0.57   acernitro5   <none>           <none>
+nginx-demo-5748cf6bbf-mwm5v   1/1     Running   0          6s    10.42.0.59   acernitro5   <none>           <none>
+nginx-demo-5748cf6bbf-rgdp7   1/1     Running   0          10s   10.42.0.58   acernitro5   <none>           <none>
+
+=== STEP 3: Delete 2 pod(s) ===
+pod "nginx-demo-5748cf6bbf-g6z67" deleted from default namespace
+pod "nginx-demo-5748cf6bbf-mwm5v" deleted from default namespace
+
+=== STEP 4: Kubernetes reaction ===
+NAME                          READY   STATUS              RESTARTS   AGE
+nginx-demo-5748cf6bbf-7vgv8   0/1     ContainerCreating   0          1s
+nginx-demo-5748cf6bbf-g6z67   1/1     Terminating         0          12s
+nginx-demo-5748cf6bbf-mwm5v   1/1     Terminating         0          7s
+nginx-demo-5748cf6bbf-rb48f   0/1     ContainerCreating   0          1s
+nginx-demo-5748cf6bbf-rgdp7   1/1     Running             0          11s
+
+=== FINAL RESULT ===
+NAME                          READY   STATUS    RESTARTS   AGE
+nginx-demo-5748cf6bbf-7vgv8   1/1     Running   0          3s
+nginx-demo-5748cf6bbf-rb48f   1/1     Running   0          3s
+nginx-demo-5748cf6bbf-rgdp7   1/1     Running   0          13s
+Deleted pods: pod/nginx-demo-5748cf6bbf-g6z67 pod/nginx-demo-5748cf6bbf-mwm5v
+Time until 3 pods were ready again: 2.1 seconds
+
+=== EVENTS: who created the new pods ===
+3s          Normal   SuccessfulCreate   replicaset/nginx-demo-5748cf6bbf   Created pod: nginx-demo-5748cf6bbf-7vgv8
+3s          Normal   SuccessfulCreate   replicaset/nginx-demo-5748cf6bbf   Created pod: nginx-demo-5748cf6bbf-rb48f
